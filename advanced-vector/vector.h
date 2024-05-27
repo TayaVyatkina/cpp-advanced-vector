@@ -24,7 +24,7 @@ public:
 
     RawMemory(RawMemory&& other) noexcept
         : buffer_(std::exchange(other.buffer_, nullptr))
-        , capacity_(std::exchange(other.capacity_, 0)) 
+        , capacity_(std::exchange(other.capacity_, 0))
     {}
 
     RawMemory& operator=(RawMemory&& rhs) noexcept {
@@ -109,9 +109,9 @@ public:
     // Копирующий конструктор.Создаёт копию элементов исходного вектора.
     // Имеет вместимость, равную размеру исходного вектора, то есть выделяет память без запаса.
     // Алгоритмическая сложность : O(размер исходного вектора).
-    Vector(const Vector& other) 
+    Vector(const Vector& other)
         : data_(other.size_)
-        , size_(other.size_) 
+        , size_(other.size_)
     {
         std::uninitialized_copy_n(other.data_.GetAddress(), size_, data_.GetAddress());
     }
@@ -119,13 +119,13 @@ public:
     // Деструктор.Разрушает содержащиеся в векторе элементы и освобождает занимаемую ими память.
     // Алгоритмическая сложность : O(размер вектора).
     ~Vector() {
-        DestroyN(data_.GetAddress(), size_);
+        std::destroy_n(data_.GetAddress(), size_);
     }
 
     // Перемещающий конструктор. Выполняется за O(1) и не выбрасывает исключений
-    Vector(Vector&& other) noexcept 
+    Vector(Vector&& other) noexcept
         : data_(std::move(other.data_))
-        , size_(std::exchange(other.size_, 0)) 
+        , size_(std::exchange(other.size_, 0))
     {}
 
     Vector& operator=(const Vector& other) {
@@ -167,15 +167,15 @@ public:
     }
 
     // Оператор перемещающего присваивания. Выполняется за O(1) и не выбрасывает исключений.
-    Vector& operator=(Vector&& rhs) noexcept { 
-        Swap(rhs); return *this; 
+    Vector& operator=(Vector&& rhs) noexcept {
+        Swap(rhs); return *this;
     }
 
     // Метод Swap, выполняющий обмен содержимого вектора с другим вектором. 
     // Операция должна иметь сложность O(1) и не выбрасывать исключений.
-    void Swap(Vector& other) noexcept { 
-        data_.Swap(other.data_), 
-        std::swap(size_, other.size_);
+    void Swap(Vector& other) noexcept {
+        data_.Swap(other.data_),
+            std::swap(size_, other.size_);
     }
 
     // Метод void Reserve(size_t capacity).Резервирует достаточно места, чтобы вместить количество элементов, равное capacity.
@@ -199,7 +199,7 @@ public:
 
     void Resize(size_t new_size) {
         if (new_size < Size()) {
-            DestroyN(data_.GetAddress() + new_size, Size() - new_size);
+            std::destroy_n(data_.GetAddress() + new_size, Size() - new_size);
             size_ = new_size;
         }
         else if (new_size > Size()) {
@@ -208,65 +208,26 @@ public:
             size_ = new_size;
         }
     }
-    
-    void PushBack(T&& value) {
-        if (size_ == Capacity()) {
-            //Reserve(size_ == 0 ? 1 : size_ * 2);
-            RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
 
-            std::construct_at(new_data.GetAddress() + Size(), std::move(value));
-            // constexpr оператор if будет вычислен во время компиляции
-            if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
-            }
-            else {
-                std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
-            }
-            std::destroy_n(data_.GetAddress(), size_);
-            data_.Swap(new_data);
-        }
-        else {
-            new (data_ + size_) T(std::move(value));
-        }
-        ++size_;
-    }
-
-    void PushBack(const T& value) {
-        if (size_ == Capacity()) {
-            //Reserve(size_ == 0 ? 1 : size_ * 2);
-            RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
-
-            std::construct_at(new_data.GetAddress() + Size(), std::move(value));
-            // constexpr оператор if будет вычислен во время компиляции
-            if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
-            }
-            else {
-                std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
-            }
-            std::destroy_n(data_.GetAddress(), size_);
-            data_.Swap(new_data);
-        }
-        else {
-            new (data_ + size_) T(value);
-        }
-        ++size_;
-    }
-   
     // Реализация похожа на PushBack, только вместо копирования или перемещения
     //переданного элемента, он конструируется путём передачи параметров метода конструктору T
     template <typename... Args>
     T& EmplaceBack(Args&&... args) {
         if (size_ == Capacity()) {
             RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
-
-            std::construct_at(new_data.GetAddress() + Size(), std::forward<Args>(args)...);
-            // constexpr оператор if будет вычислен во время компиляции
-            if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
+            try {
+                std::construct_at(new_data.GetAddress() + Size(), std::forward<Args>(args)...);
+                // constexpr оператор if будет вычислен во время компиляции
+                if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+                    std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
+                }
+                else {
+                    std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
+                }
             }
-            else {
-                std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
+            catch (...) {
+                std::destroy_n(new_data.GetAddress(), size_);
+                throw;
             }
             std::destroy_n(data_.GetAddress(), size_);
             data_.Swap(new_data);
@@ -278,7 +239,16 @@ public:
         return *(data_.GetAddress() + Size() - 1);
     }
 
+    void PushBack(T&& value) {
+        this->EmplaceBack(std::move(value));
+    }
+
+    void PushBack(const T& value) {
+        this->EmplaceBack(value);
+    }
+
     void PopBack() /* noexcept */ {
+        assert(Size());
         Resize(Size() - 1);
     }
 
@@ -328,23 +298,28 @@ public:
 
     template <typename... Args>
     iterator Emplace(const_iterator pos, Args&&... args) {
+        assert(pos >= begin() && pos <= end());
         int index_for_insert = pos - begin();
 
         if (Size() == Capacity()) {
 
             RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
+            try {
+                std::construct_at(new_data.GetAddress() + index_for_insert, std::forward<Args>(args)...);
 
-            std::construct_at(new_data.GetAddress() + index_for_insert, std::forward<Args>(args)...);
-
-            if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                std::uninitialized_move_n(begin(), index_for_insert, new_data.GetAddress());
-                std::uninitialized_move_n(begin() + index_for_insert, Size() - index_for_insert, new_data.GetAddress() + index_for_insert + 1);
+                if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+                    std::uninitialized_move_n(begin(), index_for_insert, new_data.GetAddress());
+                    std::uninitialized_move_n(begin() + index_for_insert, Size() - index_for_insert, new_data.GetAddress() + index_for_insert + 1);
+                }
+                else {
+                    std::uninitialized_copy_n(begin(), index_for_insert, new_data.GetAddress());
+                    std::uninitialized_copy_n(begin() + index_for_insert, Size() - index_for_insert, new_data.GetAddress() + index_for_insert + 1);
+                }
             }
-            else {
-                std::uninitialized_copy_n(begin(), index_for_insert, new_data.GetAddress());
-                std::uninitialized_copy_n(begin() + index_for_insert, Size() - index_for_insert, new_data.GetAddress() + index_for_insert + 1);
+            catch (...) {
+                std::destroy_n(new_data.GetAddress(), size_);
+                throw;
             }
-
             std::destroy_n(begin(), size_);
             data_.Swap(new_data);
 
@@ -353,7 +328,7 @@ public:
             try {
                 if (pos == end()) {
                     new (end()) T(std::forward<Args>(args)...);
-            }
+                }
                 else {
                     T new_values(std::forward<Args>(args)...);
                     new (end()) T(std::forward<T>(*(end() - 1)));
@@ -362,7 +337,7 @@ public:
                 }
             }
             catch (...) {
-                operator delete (end());
+                std::destroy_at(end());
                 throw;
             }
         }
@@ -371,10 +346,10 @@ public:
     }
 
     iterator Erase(const_iterator pos) /*noexcept(std::is_nothrow_move_assignable_v<T>)*/ {
+        assert(pos >= begin() && pos <= end());
         int index_for_erase = pos - begin();
         std::move(begin() + index_for_erase + 1, end(), begin() + index_for_erase);
-        Destroy(end() - 1);
-        size_--;
+        this->PopBack();
         return begin() + index_for_erase;
     }
 
@@ -399,22 +374,23 @@ private:
     static void Deallocate(T* buf) noexcept {
         operator delete(buf);
     }
+    // Вместо этой функции лучше использовать std::destroy_n.
+    //// Вызывает деструкторы n объектов массива по адресу buf
+    //static void DestroyN(T* buf, size_t n) noexcept {
+    //    for (size_t i = 0; i != n; ++i) {
+    //        Destroy(buf + i);
+    //    }
+    //}
 
-    // Вызывает деструкторы n объектов массива по адресу buf
-    static void DestroyN(T* buf, size_t n) noexcept {
-        for (size_t i = 0; i != n; ++i) {
-            Destroy(buf + i);
-        }
-    }
+    //// Создаёт копию объекта elem в сырой памяти по адресу buf
+    //static void CopyConstruct(T* buf, const T& elem) {
+    //    new (buf) T(elem);
+    //}
 
-    // Создаёт копию объекта elem в сырой памяти по адресу buf
-    static void CopyConstruct(T* buf, const T& elem) {
-        new (buf) T(elem);
-    }
-
-    // Вызывает деструктор объекта по адресу buf
-    static void Destroy(T* buf) noexcept {
-        buf->~T();
-    }
+    // Вместо этой функции лучше использовать std::destroy_at.
+    //// Вызывает деструктор объекта по адресу buf
+    //static void Destroy(T* buf) noexcept {
+    //    buf->~T();
+    //}
 
 };
