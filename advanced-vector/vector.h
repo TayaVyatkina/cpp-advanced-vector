@@ -215,21 +215,16 @@ public:
     T& EmplaceBack(Args&&... args) {
         if (size_ == Capacity()) {
             RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
+            std::construct_at(new_data.GetAddress() + Size(), std::forward<Args>(args)...);
+
             try {
-                std::construct_at(new_data.GetAddress() + Size(), std::forward<Args>(args)...);
-                // constexpr оператор if будет вычислен во время компиляции
-                if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                    std::uninitialized_move_n(data_.GetAddress(), size_, new_data.GetAddress());
-                }
-                else {
-                    std::uninitialized_copy_n(data_.GetAddress(), size_, new_data.GetAddress());
-                }
+                MoveArgs(data_.GetAddress(), size_, new_data.GetAddress());
             }
             catch (...) {
-                std::destroy_n(new_data.GetAddress(), size_);
+                new_data.~RawMemory();
                 throw;
             }
-            std::destroy_n(data_.GetAddress(), size_);
+
             data_.Swap(new_data);
         }
         else {
@@ -299,47 +294,45 @@ public:
     template <typename... Args>
     iterator Emplace(const_iterator pos, Args&&... args) {
         assert(pos >= begin() && pos <= end());
+        if (pos == end()) {
+            return &EmplaceBack(std::forward<Args>(args)...);
+        }
         int index_for_insert = pos - begin();
-
         if (Size() == Capacity()) {
-
             RawMemory<T> new_data(size_ == 0 ? 1 : size_ * 2);
-            try {
-                std::construct_at(new_data.GetAddress() + index_for_insert, std::forward<Args>(args)...);
+            std::construct_at(new_data.GetAddress() + index_for_insert, std::forward<Args>(args)...);
 
-                if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                    std::uninitialized_move_n(begin(), index_for_insert, new_data.GetAddress());
-                    std::uninitialized_move_n(begin() + index_for_insert, Size() - index_for_insert, new_data.GetAddress() + index_for_insert + 1);
-                }
-                else {
-                    std::uninitialized_copy_n(begin(), index_for_insert, new_data.GetAddress());
-                    std::uninitialized_copy_n(begin() + index_for_insert, Size() - index_for_insert, new_data.GetAddress() + index_for_insert + 1);
-                }
+            try {
+                MoveArgs(begin(), index_for_insert, new_data.GetAddress());
             }
             catch (...) {
-                std::destroy_n(new_data.GetAddress(), size_);
+                //new_data[index_for_insert].~T();
+                new_data.~RawMemory();
                 throw;
             }
-            std::destroy_n(begin(), size_);
+
+            try {
+                MoveArgs(begin() + index_for_insert, Size() - index_for_insert, new_data.GetAddress() + index_for_insert + 1);
+            }
+            catch (...) {
+                //std::destroy_n(new_data.GetAddress(), index_for_insert + 1);
+                new_data.~RawMemory();
+                throw;
+            }
             data_.Swap(new_data);
 
         }
         else {
+            T new_values(std::forward<Args>(args)...);
             try {
-                if (pos == end()) {
-                    new (end()) T(std::forward<Args>(args)...);
-                }
-                else {
-                    T new_values(std::forward<Args>(args)...);
-                    new (end()) T(std::forward<T>(*(end() - 1)));
-                    std::move_backward(begin() + index_for_insert, end() - 1, end());
-                    *(begin() + index_for_insert) = std::forward<T>(new_values);
-                }
+                new (end()) T(std::forward<T>(*(end() - 1)));
             }
             catch (...) {
                 std::destroy_at(end());
                 throw;
             }
+            std::move_backward(begin() + index_for_insert, end() - 1, end());
+            *(begin() + index_for_insert) = std::forward<T>(new_values);
         }
         size_++;
         return begin() + index_for_insert;
@@ -373,6 +366,16 @@ private:
     // Освобождает сырую память, выделенную ранее по адресу buf при помощи Allocate
     static void Deallocate(T* buf) noexcept {
         operator delete(buf);
+    }
+
+    void MoveArgs(T* from, int size, T* to) {
+        if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
+            std::uninitialized_move_n(from, size, to);
+        }
+        else {
+            std::uninitialized_copy_n(from, size, to);
+        }
+        std::destroy_n(from, size);
     }
     // Вместо этой функции лучше использовать std::destroy_n.
     //// Вызывает деструкторы n объектов массива по адресу buf
