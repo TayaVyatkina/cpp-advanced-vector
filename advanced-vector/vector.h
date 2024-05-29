@@ -221,7 +221,7 @@ public:
                 MoveArgs(data_.GetAddress(), size_, new_data.GetAddress());
             }
             catch (...) {
-                new_data.~RawMemory();
+                std::destroy_at(new_data.GetAddress() + Size());
                 throw;
             }
 
@@ -306,8 +306,7 @@ public:
                 MoveArgs(begin(), index_for_insert, new_data.GetAddress());
             }
             catch (...) {
-                //new_data[index_for_insert].~T();
-                new_data.~RawMemory();
+                std::destroy_at(new_data.GetAddress() + index_for_insert);
                 throw;
             }
 
@@ -315,8 +314,7 @@ public:
                 MoveArgs(begin() + index_for_insert, Size() - index_for_insert, new_data.GetAddress() + index_for_insert + 1);
             }
             catch (...) {
-                //std::destroy_n(new_data.GetAddress(), index_for_insert + 1);
-                new_data.~RawMemory();
+                std::destroy_n(new_data.GetAddress(), index_for_insert + 1);
                 throw;
             }
             data_.Swap(new_data);
@@ -324,15 +322,9 @@ public:
         }
         else {
             T new_values(std::forward<Args>(args)...);
-            try {
-                new (end()) T(std::forward<T>(*(end() - 1)));
-            }
-            catch (...) {
-                std::destroy_at(end());
-                throw;
-            }
+            new (end()) T(std::forward<T>(*(end() - 1)));
             std::move_backward(begin() + index_for_insert, end() - 1, end());
-            *(begin() + index_for_insert) = std::forward<T>(new_values);
+            *(begin() + index_for_insert) = std::move(new_values);
         }
         size_++;
         return begin() + index_for_insert;
