@@ -323,8 +323,24 @@ public:
         else {
             T new_values(std::forward<Args>(args)...);
             new (end()) T(std::forward<T>(*(end() - 1)));
-            std::move_backward(begin() + index_for_insert, end() - 1, end());
-            *(begin() + index_for_insert) = std::move(new_values);
+
+            try {
+                std::move_backward(begin() + index_for_insert, end() - 1, end());
+            }
+            catch (...) {
+                std::destroy_at(end() - 1);
+                throw;
+            }
+
+            try {
+                *(begin() + index_for_insert) = std::move(new_values);
+            }
+            catch (...) {
+                std::move(begin() + index_for_insert + 1, end(), begin() + index_for_insert);
+                std::destroy_at(end() - 1);
+                throw;
+            }
+
         }
         size_++;
         return begin() + index_for_insert;
